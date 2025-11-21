@@ -1,0 +1,297 @@
+HaLink V3 Protocol Specification (2025) – Full TXT Edition
+================================================================
+
+INTRODUCTION
+------------
+HaLink is a TCP-based local IoT protocol designed for microcontroller devices. It enables rapid,
+deterministic, fully offline communication with Home Assistant through a simple JSON-based message
+model combined with optional ultra-light text SET frames. The protocol emphasizes:
+- simplicity,
+- predictable structure,
+- full device control without MQTT,
+- fast parsing via pre-normalized CONFIG and STATE messages,
+- event propagation,
+- and developer-friendly firmware implementation.
+
+This document contains the COMPLETE and FINAL V3 protocol specification:
+1. CONFIG Protocol
+2. STATE Protocol
+3. SET Protocol
+4. EVENT Protocol
+
+Each section includes:
+- Required and optional fields
+- Inheritance rules
+- Normalization rules
+- Examples
+- HA integration behavior
+
+
+==============================================================
+1. CONFIG PROTOCOL (V3)
+==============================================================
+
+1.1 Purpose
+-----------
+The CONFIG message defines:
+- which entities exist,
+- their metadata,
+- base attributes,
+- platform-specific attributes,
+- device metadata,
+- SET mode behavior,
+- connection throttling (delay_ms),
+- and optional capabilities (future expansion).
+
+CONFIG is sent:
+- at connection time,
+- and may be resent any time for reconfiguration.
+
+CONFIG DOES NOT contain state values.
+
+CONFIG message structure:
+-------------------------
+{
+  "config": {
+      "version": 3,
+      "device": { ... metadata ... },
+      "delay_ms": <int>,
+      "set_mode": "light" | "object",
+      "ts_enable": false | true,
+      "base": { ... inheritance ... },
+      "sensor": { ... entity defs ... },
+      "number": { ... entity defs ... },
+      "switch": { ... entity defs ... },
+      "binary_sensor": { ... entity defs ... }
+  }
+}
+
+CONFIG REQUIRED FIELDS
+----------------------
+version (MUST be integer, MUST be 3)
+
+At least one entity must be defined (unless device only provides EVENT usage).
+
+DEVICE METADATA (optional)
+--------------------------
+{
+  "manufacturer": "MyDIY",
+  "model": "BoardX",
+  "sw_version": "2.1",
+  "name": "LivingRoomController"
+}
+
+SET MODE (V3)
+-------------
+set_mode defines format of outgoing SET commands:
+
+"set_mode": "light"
+    → outgoing format: key=value   (raw TCP frame)
+
+"set_mode": "object"
+    → outgoing JSON object:
+       { "set": { <key>: { "value": <val>, ("ts": <timestamp>)? } } }
+
+ts_enable:
+    - only valid when set_mode = "object"
+    - default false
+
+DELAY_MS (queue delay)
+----------------------
+If delay_ms > 0:
+    → SET commands are queued
+    → sent one-by-one with delay_ms between frames
+    → queue items expire after 10 minutes
+
+If delay_ms = 0:
+    → immediate transmit
+
+INHERITANCE (base / platform / entity)
+--------------------------------------
+Priority:
+    base["*"] < base["sensor"/"switch"/...] < entity-level
+
+Attributes merge:
+- "_attr_*" → applied directly to entity object
+- others → added to extra_state_attributes
+
+ENTITY DEFINITIONS
+------------------
+Each platform contains:
+{
+  "Friendly Name": {
+      "device_class": "...",
+      "unit": "°C",
+      "min": 0,
+      "max": 100,
+      “attributes”: { "_attr_icon": "mdi:fire" }
+  }
+}
+
+The CONFIG parser normalizes entity keys:
+- Friendly Name -> entity key: friendly_name → friendly_name
+- internal key always normalized (lowercase, underscore)
+- platform is injected (sensor/number/switch/binary_sensor)
+
+ALIVE ENTITY
+------------
+Alive entity is NOT defined in CONFIG.
+It is ALWAYS auto-created by HA integration:
+binary_sensor.<device>_alive
+
+CONFIG must not include an entity named "alive".
+
+
+==============================================================
+2. STATE PROTOCOL (V3)
+==============================================================
+
+Purpose:
+--------
+STATE messages carry actual runtime values of entities.
+
+Structure:
+----------
+{
+  "state": {
+      "alive": { "value": "online", "attributes": {...} },
+      "override_temperature": 23,
+      "room_temperature": { "value": 21.3, "attributes": {...} },
+      "pump": 1
+  }
+}
+
+ALIVE
+-----
+Alive is special:
+- Controls binary_sensor.<device>_alive
+- Attributes from alive.attributes are added to the entity
+- State (on/off) is computed as:
+    connection = True/False
+    config_ready = True/False
+    binary_sensor state = connection AND config_ready
+
+NORMAL STATE VALUES
+-------------------
+Two formats allowed:
+
+1) Primitive:
+   "room_temperature": 21.3
+
+2) Object:
+   "room_temperature": {
+       "value": 21.3,
+       "attributes": { "outer_temp": 9.4 },
+       "ts": 1700000001
+   }
+
+STATE RULES
+-----------
+- Missing value means "no change"
+- Attributes merged into entity.extra_state_attributes
+- ts (optional) → forwarded but not validated
+
+Partial state is allowed:
+{
+  "state": {
+     "pump": 1
+  }
+}
+
+Device should send full or partial state at its discretion.
+
+
+==============================================================
+3. SET PROTOCOL (V3)
+==============================================================
+
+Purpose:
+--------
+Home Assistant → Device commands to modify entity values.
+
+Two modes:
+----------
+SET MODE: LIGHT
+    Frame:  key=value
+    Example:
+        override_enable=1
+
+SET MODE: OBJECT
+    Frame:
+    {
+        "set": {
+            "override_temperature": {
+                "value": 23.5,
+                "ts": 1700000123 (optional)
+            }
+        }
+    }
+
+Timestamp handling:
+- Only used in object mode
+- HA does not interpret timestamps
+- Device is responsible for applying or ignoring them
+
+SET QUEUE (delay_ms)
+--------------------
+- if delay_ms > 0:
+    → queue worker sends commands with given spacing
+    → commands expire after 600 seconds (10 minutes)
+- if delay_ms = 0:
+    → immediate transmit
+
+
+==============================================================
+4. EVENT PROTOCOL (V3)
+==============================================================
+
+Purpose:
+--------
+Devices can send arbitrary events not tied to entity states, such as:
+- button presses
+- RFID reads
+- sensors in interrupt mode
+- one-shot messages
+
+Structure:
+----------
+"event": "button1"
+OR
+"event": {
+    "button1": "double_press"
+}
+OR
+"event": {
+    "rfid_reader": {
+        "uid": "AB-44-19-8F",
+        "ts": 1700000020
+    }
+}
+
+Normalization:
+--------------
+Each event produces:
+{
+   "key": "button1",
+   "value": <str or None>,
+   "attributes": {...},
+   "ts": <timestamp or None>
+}
+
+Home Assistant receives it as:
+event: halink_event.<device_id>.<key>
+
+Example:
+--------
+event: halink_event.kazan_5000.button1
+data:
+{
+   "value": "single_press"
+}
+
+HA does not require events to be declared in CONFIG.
+
+
+==============================================================
+END OF DOCUMENT
+==============================================================

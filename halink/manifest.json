@@ -1,0 +1,14 @@
+{
+  "domain": "halink",
+  "name": "HaLink Device",
+  "version": "3.0.0",
+  "documentation": "https://github.com/jzolee/HaLink",
+  "issue_tracker": "https://github.com/jzolee/HaLink/issues",
+  "integration_type": "device",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@jzolee"],
+  "iot_class": "local_push",
+  "loggers": ["custom_components.halink"],
+  "config_flow": true
+}
