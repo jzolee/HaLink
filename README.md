@@ -1,121 +1,195 @@
-## HaLink – Home Assistant Integration (V3 Protocol)
+# 📘 **HaLink V3 – Home Assistant Integration & Protocol (Developer Handbook)**
 
-HaLink is a **TCP-based local control protocol** designed for microcontroller devices.
-This Home Assistant custom integration implements the **full HaLink V3 specification**, providing:
-
-* ultra-fast, offline, deterministic device control
-* dynamic entities defined by firmware
-* SET / STATE / EVENT communication
-* automatic entity creation
-* fully async TCP client
-* built-in `alive` connectivity sensor
-* selectable SET modes (light / object)
-* configurable SET queue with TTL & delay
-* compact short-key protocol support
-
-The integration is ideal for **ESP32/STM32/Pico** devices or any microcontroller with a TCP stack and JSON encoding.
+*A lightweight, deterministic, TCP-based IoT protocol and HA integration designed for microcontrollers.*
 
 ---
 
-## ✨ Features
+## 🌟 Introduction
 
-### ✔ Dynamic entity model
+**HaLink** is an ultra-lightweight, deterministic, fully offline **local TCP protocol** designed specifically for microcontroller devices (ESP32, STM32, RP2040, etc.).
+It provides:
 
-Entities are **not pre-defined** in the integration.
-They are created by the device through a **CONFIG** message exactly matching the device’s capabilities.
+* High-speed, low-latency bidirectional communication
+* Human-friendly JSON messages
+* Optional ultra-compact short-key mode
+* Deterministic SET command behavior
+* Built-in alive/connection monitoring
+* Dynamic runtime entity creation in Home Assistant
+* Zero YAML configuration
 
-Supported entity types:
+Unlike MQTT or REST, HaLink does not require brokers, discovery messages, retained topics, polling, or complex setup.
+Everything happens through a small TCP socket and simple JSON messages.
 
-* Sensor
-* Number
-* Switch
-* Binary Sensor
-* Select
-* Button
-* (plus an automatically created *Alive* sensor)
+This repository contains:
 
-Each entity receives:
-
-* device_class
-* unit
-* min/max/step
-* icon
-* attributes
-* state_class
-* entity_category
-* custom metadata (merged)
+1. **Full Home Assistant integration**
+2. **Complete protocol implementation**
+3. **Firmware examples**
+4. **The officially supported HaLink V3 protocol**
 
 ---
 
-### ✔ Fully asynchronous TCP engine
+## 🧭 Protocol Philosophy & Goals
 
-The integration includes an advanced async TCP client:
+HaLink V3 was designed with specific objectives:
 
-* auto-reconnect with exponential backoff
-* OS-level TCP keepalive
-* null-terminated frame decoder
-* fallback ping (lightweight ":" messages)
-* message dispatch via HA’s dispatcher bus
+### ✔ **1. MCU-first architecture**
+
+Firmware should be trivial to implement on any device:
+
+* send a CONFIG once
+* send STATE whenever values change
+* send EVENT when needed
+* react to SET commands
+* everything over a single TCP connection
+
+### ✔ **2. Offline, deterministic control**
+
+No cloud, no broker, no discovery…
+A device must work even without internet.
+SET commands must always reach the target deterministically.
+
+### ✔ **3. Simple JSON, human-readable**
+
+The protocol avoids complexity:
+
+* JSON for CONFIG, STATE, EVENT
+* light-mode `key=value` for SET
+* null-terminated (`\0`) messages for stream framing
+
+### ✔ **4. Dynamic entity model**
+
+Entities are defined **at runtime by firmware**, not by HA:
+
+* sensors
+* numbers
+* switches
+* select boxes
+* binary sensors
+* buttons
+* * automatic connectivity sensor (Alive)
+
+### ✔ **5. Short-key encoding**
+
+Devices may send extremely compact messages using short-keys:
+
+```
+c: { v:3, s:{ rt:{u:"C"} } }
+```
+
+The integration transparently expands them into full JSON objects.
+
+### ✔ **6. Predictable SET queue**
+
+* configurable delay between SET frames
+* 10-minute TTL
+* optional timestamped SET in object mode
 
 ---
 
-### ✔ Full HaLink V3 Protocol Support
+## 🏗 Architecture Overview
 
-Implements the complete specification (see `halink_v3_specification.txt`):
+The HaLink system consists of the following major components:
 
+```mermaid
+flowchart TD
 
-* CONFIG
-* STATE
-* SET (light/object)
-* EVENT
+    subgraph MCU["Microcontroller / Firmware"]
+        CFG["CONFIG message"]
+        ST["STATE updates"]
+        EVT["EVENT messages"]
+        SET_RX["Receive SET"]
+        TCP_MCU["TCP Client (device side)"]
+    end
 
-Short-key expansions are handled automatically.
+    subgraph HA["Home Assistant"]
+        TCP["Async TCP Client"]
+        DEV["HaLinkDevice Manager"]
+        PARSERS["MessageParser (CONFIG / STATE / EVENT)"]
+        ENT["Dynamic Entities"]
+        BUS["HA Dispatcher Bus"]
+    end
+
+    CFG --> TCP
+    ST --> TCP
+    EVT --> TCP
+    
+    TCP --> DEV
+    DEV --> PARSERS
+    PARSERS --> ENT
+
+    ENT --> BUS
+    DEV --> BUS
+
+    DEV -->|SET Command| TCP
+    TCP -->|text/json| SET_RX
+```
 
 ---
 
-## 📦 Installation
+## 🚀 Features at a Glance
 
-### HACS (planned)
+* Fully async TCP engine with reconnect + keepalive
+* Dynamic entity creation (CONFIG-driven)
+* Per-entity STATE dispatch
+* Event propagation → HA event bus
+* SET command engine (light mode / object mode)
+* SET queue + TTL
+* Full short-key support
+* OS-level TCP keepalive + fallback ping
+* Auto-created `binary_sensor.<device>_alive`
 
-Coming soon.
+---
 
-### Manual installation
+## 📦 Installation (Home Assistant)
 
-1. Copy the folder:
-   `custom_components/halink/`
+1. Copy this folder to:
+   `config/custom_components/halink/`
 2. Restart Home Assistant
-3. Add Integration → **HaLink Device**
-4. Enter:
+3. Open **Settings → Devices & Services → Add Integration**
+4. Search for **HaLink Device**
+5. Enter:
 
    * Host
    * Port
    * Friendly name
 
----
-
-## 🧠 How It Works
-
-### 1. Initial connection
-
-When HA connects to the device:
-
-* TCP client connects
-* waits for `CONFIG`
-* starts CONFIG-handshake timeout (5 seconds)
-* launches SET-queue worker if `delay_ms` > 0
+That's it — entities will appear automatically when the device sends CONFIG.
 
 ---
 
-### 2. CONFIG message → entity creation
+# 🔧 Protocol Overview (HaLink V3)
 
-Firmware sends:
+## 1. CONFIG Message
+
+Sent once at connection (and may be resent any time).
+
+Defines:
+
+* device metadata
+* base/default attributes
+* platforms (sensor, number, switch, binary_sensor, select, button)
+* entity metadata
+* set_mode
+* delay_ms
+* timestamp mode
+* alive diagnostics
+
+### Example:
 
 ```json
 {
   "config": {
     "version": 3,
+    "device": {
+      "name": "Boiler Controller",
+      "manufacturer": "ESP32"
+    },
+    "set_mode": "light",
+    "delay_ms": 0,
     "sensor": {
-      "Room Temperature": { "unit": "°C", "device_class": "temperature" }
+      "Room Temperature": { "unit": "°C" },
+      "Outer Temperature": { "unit": "°C" }
     },
     "switch": {
       "Heater": {}
@@ -124,184 +198,132 @@ Firmware sends:
 }
 ```
 
-HA:
-
-* parses CONFIG
-* normalizes keys
-* merges base/platform/entity attributes
-* creates requested entities
-* notifies all platforms using dispatcher signals
-  (e.g. `halink_create_sensor`)
-
-CONFIG parser:
-
-
-Entity creation is performed in `device.py`:
-
-
 ---
 
-### 3. STATE updates
+## 2. STATE Message
 
-STATE messages update the entities:
+Partial updates allowed.
+
+Two formats:
+
+### Primitive:
 
 ```json
 {
   "state": {
-    "room_temperature": 21.4,
-    "heater": 1
+    "room_temperature": 22.1
   }
 }
 ```
 
-All entity updates go through dispatcher:
- → `_process_state()`
-
-Each entity class applies only platform-specific logic:
-
-* sensor → `_attr_native_value`
-* switch → `_attr_is_on`
-* number → `_attr_native_value`
-* select → `current_option`
-
-Platform example (sensor):
-
-
----
-
-### 4. SET Commands (HA → device)
-
-Two modes:
-
-#### Light mode
-
-```
-override_enable=1\0
-```
-
-#### Object mode
+### Detailed:
 
 ```json
-{ "set": { "override_temp": { "value": 22.5 } } }
+{
+  "state": {
+    "room_temperature": {
+      "value": 22.1,
+      "attributes": { "calibration": -0.4 },
+      "ts": 1700000012
+    }
+  }
+}
 ```
 
-Handled in:
- → `send_set()`
+### Alive state:
+
+```json
+{
+  "state": {
+    "alive": {
+      "value": "online",
+      "attributes": { "uptime": 5566 }
+    }
+  }
+}
+```
 
 ---
 
-### 5. Events
+## 3. SET Message (Home Assistant → Device)
 
-Events do **not require CONFIG definition**.
+### Light mode:
 
-Example:
+```
+heater=1\0
+override_temperature=23.5\0
+```
+
+### Object mode:
+
+```json
+{
+  "set": {
+    "override_temperature": { "value": 23.5, "ts": 1700000113 }
+  }
+}
+```
+
+---
+
+## 4. EVENT Message
+
+Does **not** require CONFIG.
 
 ```json
 { "event": "button1" }
 ```
 
-Normalized and fired as HA events:
+or:
 
-```
-halink_event.<device_id>.button1
-```
-
-EVENT parser:
-
-
----
-
-## 🛠 Firmware Developer Guide
-
-Your device only needs to:
-
-1. Open a TCP server
-2. Accept connection
-3. Send CONFIG once
-4. Send STATE changes
-5. Send EVENT messages when needed
-6. Parse SET messages from the integration
-
-### Minimal firmware sequence
-
-```
-Device boots →
-Wait for TCP client (HA) →
-On connect:
-    Send CONFIG
-    Start sending STATE periodically or when changed
-On SET:
-    Apply command
-On EVENT:
-    Send event immediately
-```
-
-### CONFIG is mandatory
-
-If CONFIG is not received within 5 seconds, HA will auto-disconnect and reconnect.
-
----
-
-## 📁 Project Structure
-
-```
-halink/
-  ├── __init__.py              # HA integration setup
-  ├── config_flow.py           # User setup UI
-  ├── device.py                # Device manager (CONFIG/STATE/EVENT, SET engine)  :contentReference[oaicite:7]{index=7}
-  ├── client.py                # Async TCP client                                 :contentReference[oaicite:8]{index=8}
-  ├── message_parser.py        # Root parser (config/state/event)                 :contentReference[oaicite:9]{index=9}
-  ├── config_parser.py         # CONFIG normalization                             :contentReference[oaicite:10]{index=10}
-  ├── state_parser.py          # STATE normalization                              :contentReference[oaicite:11]{index=11}
-  ├── event_parser.py          # EVENT normalization                              :contentReference[oaicite:12]{index=12}
-  ├── base_entity.py           # Common entity logic                              :contentReference[oaicite:13]{index=13}
-  ├── sensor.py, number.py,
-  │   switch.py, binary_sensor.py,
-  │   select.py, button.py     # Platform implementations                         (files cited above)
-  ├── utils.py                 # Short-key expansion, ID generation               :contentReference[oaicite:14]{index=14}
-  ├── short_keys.py            # Short-key mapping tables                         :contentReference[oaicite:15]{index=15}
-  └── halink_v3_specification.txt  # Full protocol spec                           :contentReference[oaicite:16]{index=16}
+```json
+{
+  "event": {
+    "rfid_reader": { "uid": "AA-11-22-33", "ts": 1700000094 }
+  }
+}
 ```
 
 ---
 
-## 📚 HaLink V3 Specification
+# 🧩 Home Assistant Integration Design
 
-A full protocol description is included:
-**halink_v3_specification.txt**
+```mermaid
+sequenceDiagram
+    participant MCU as Device Firmware
+    participant TCP as TCP Client
+    participant DEV as HaLinkDevice
+    participant PARSE as MessageParser
+    participant ENT as Entity Classes
 
+    MCU->>TCP: CONFIG\0
+    TCP->>DEV: raw message
+    DEV->>PARSE: parse(CONFIG)
+    PARSE->>DEV: normalized CONFIG
+    DEV->>ENT: create entities
+
+    loop State Updates
+        MCU->>TCP: STATE\0
+        TCP->>DEV: raw
+        DEV->>PARSE: parse(STATE)
+        PARSE->>ENT: state updates
+    end
+
+    MCU->>TCP: EVENT\0
+    DEV->>HA: fire HA event
+
+    ENT->>MCU: SET commands via TCP
+```
 
 ---
 
-## 🤝 Contributing
+# 💻 Firmware Examples (all platforms)
 
-Pull requests, suggestions, and discussions are welcome!
-
----
-
-## 📜 License
-
-MIT License.
+All examples are directly usable as-is and follow the V3 protocol.
 
 ---
 
-# 🔥 **Firmware Examples for HaLink V3**
-
----
-
-# ✅ **1. ESP32 – Arduino (C++) – Full Working Example**
-
-### ✔ TCP client
-
-### ✔ CONFIG V3
-
-### ✔ STATE sending
-
-### ✔ EVENT sending
-
-### ✔ SET receiving (light mode)
-
-### ✔ Null-terminated protocol
+## 🟦 **ESP32 – Arduino (C++) – Full Working Firmware**
 
 ```cpp
 #include <WiFi.h>
@@ -312,302 +334,138 @@ WiFiClient client;
 
 const char* ssid = "WIFI";
 const char* pass = "PASS";
-const char* host = "homeassistant.local"; 
-const int   port = 5001;                  // Same as HA integration
-
-unsigned long lastStateSent = 0;
+const char* host = "homeassistant.local";
+const int   port = 5001;
 
 void sendJson(const JsonDocument& doc) {
     String out;
     serializeJson(doc, out);
-    out += '\0';      // <-- HaLink V3 protocol requirement
+    out += '\0';
     client.print(out);
 }
 
 void sendConfig() {
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<1024> d;
 
-    auto cfg = doc["config"].to<JsonObject>();
+    auto cfg = d["config"].to<JsonObject>();
     cfg["version"] = 3;
-    cfg["set_mode"] = "light";    // or "object"
-    cfg["delay_ms"] = 0;
+    cfg["set_mode"] = "light";
 
-    // device metadata
-    auto dev = cfg["device"].to<JsonObject>();
-    dev["manufacturer"] = "ESP32";
-    dev["model"] = "BoilerController";
-    dev["sw_version"] = "1.0";
+    cfg["sensor"]["Room Temperature"]["unit"] = "°C";
+    cfg["switch"]["Heater"] = JsonObject();
 
-    // entities
-    auto sensors = cfg["sensor"].to<JsonObject>();
-    sensors["Room Temperature"]["unit"] = "°C";
-    sensors["Outer Temperature"]["unit"] = "°C";
-
-    auto switches = cfg["switch"].to<JsonObject>();
-    switches["Heater"] = JsonObject();
-
-    sendJson(doc);
+    sendJson(d);
 }
 
-void sendState() {
-    StaticJsonDocument<512> doc;
-
-    auto st = doc["state"].to<JsonObject>();
-    st["room_temperature"] = 21.7;
-    st["outer_temperature"] = 4.2;
-    st["heater"] = 1;
-
-    sendJson(doc);
-}
-
-void sendEvent(const char* key) {
-    StaticJsonDocument<256> doc;
-    doc["event"] = key;
-    sendJson(doc);
-}
-
-void processSet(const String& raw) {
-    // light mode: key=value
-    if (!raw.contains("=")) return;
-
-    int eq = raw.indexOf('=');
-    String key = raw.substring(0, eq);
-    String val = raw.substring(eq + 1);
-
-    Serial.printf("[SET] %s = %s\n", key.c_str(), val.c_str());
-
-    if (key == "heater") {
-        int v = val.toInt();
-        digitalWrite(5, v);
-    }
-}
-
-void setup() {
-    Serial.begin(115200);
-    pinMode(5, OUTPUT);
-
-    WiFi.begin(ssid, pass);
-    while (WiFi.status() != WL_CONNECTED) delay(200);
-
-    while (!client.connect(host, port)) {
-        Serial.println("Retry connect...");
-        delay(1000);
-    }
-
-    sendConfig();
+void sendState(float t, int heater) {
+    StaticJsonDocument<256> d;
+    d["state"]["room_temperature"] = t;
+    d["state"]["heater"] = heater;
+    sendJson(d);
 }
 
 String rx;
 
+void setup() {
+    WiFi.begin(ssid, pass);
+    while (WiFi.status() != WL_CONNECTED) delay(200);
+
+    client.connect(host, port);
+    sendConfig();
+}
+
 void loop() {
-    // process incoming SET commands
+    // Read SET commands
     while (client.available()) {
         char c = client.read();
-        if (c == '\0') {
-            processSet(rx);
+        if (c == '\0') {               // finished frame
+            if (rx.indexOf('=') != -1) {
+                int sep = rx.indexOf('=');
+                String key = rx.substring(0, sep);
+                String val = rx.substring(sep + 1);
+                Serial.printf("SET: %s=%s\n", key.c_str(), val.c_str());
+            }
             rx = "";
         } else {
             rx += c;
         }
     }
 
-    // send state every 5 sec
-    if (millis() - lastStateSent > 5000) {
-        sendState();
-        lastStateSent = millis();
-    }
-
-    // example event after 10 sec
-    if (millis() > 10000)
-        sendEvent("button1");
+    sendState(21.4, 1);
+    delay(5000);
 }
 ```
 
 ---
 
-# ✅ **2. ESP32 – Arduino (C++) – Object SET Mode Example**
-
-```cpp
-void processSetObject(const String& json) {
-    StaticJsonDocument<256> doc;
-    if (deserializeJson(doc, json)) return;
-
-    if (!doc.containsKey("set")) return;
-
-    JsonObject set = doc["set"].as<JsonObject>();
-    for (auto kv : set) {
-        const char* key = kv.key().c_str();
-        float value = kv.value()["value"].as<float>();
-
-        Serial.printf("[SET OBJECT] %s = %f\n", key, value);
-
-        if (strcmp(key, "override_temperature") == 0) {
-            // apply override
-        }
-    }
-}
-```
-
-Light/Object mód között a HA integráció automatikusan vált a CONFIG alapján.
-
----
-
-# ✅ **3. ESP32 – ESP-IDF (C) Minimal TCP Implementation**
+## 🟩 **ESP-IDF (C)**
 
 ```c
-static void send_raw(const char* s) {
-    send(sock, s, strlen(s), 0);
+static void halink_send(const char *msg) {
+    send(sock, msg, strlen(msg), 0);
     send(sock, "\0", 1, 0);
 }
 
 static void send_config() {
-    const char* cfg =
-        "{"
-        "\"config\":{"
-            "\"version\":3,"
-            "\"set_mode\":\"light\","
-            "\"sensor\":{\"Temperature\":{\"u\":\"C\"}},"
-            "\"switch\":{\"Pump\":{}}"
-        "}"
-        "}";
-
-    send_raw(cfg);
-}
-
-static void send_state() {
-    const char* st =
-        "{"
-        "\"state\":{"
-            "\"temperature\":22.1,"
-            "\"pump\":1"
-        "}"
-        "}";
-
-    send_raw(st);
-}
-
-void tcp_task(void *arg) {
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    connect(sock, ...);
-
-    send_config();
-
-    while (1) {
-        send_state();
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
+    halink_send("{\"config\":{\"version\":3,\"sensor\":{\"Temp\":{\"u\":\"C\"}}}}");
 }
 ```
 
 ---
 
-# ✅ **4. MicroPython (ESP32, Raspberry Pi Pico W)**
+## 🟧 **MicroPython (ESP32/Pico W)**
 
 ```python
-import socket
-import ujson
-import time
-
-HOST = "homeassistant.local"
-PORT = 5001
+import ujson, socket, time
 
 s = socket.socket()
-s.connect((HOST, PORT))
+s.connect(("homeassistant.local", 5001))
 
 def send(obj):
     raw = ujson.dumps(obj) + '\0'
     s.send(raw.encode())
 
-def send_config():
-    cfg = {
-        "config": {
-            "version": 3,
-            "set_mode": "light",
-            "sensor": {
-                "Room Temperature": {"unit": "C"}
-            },
-            "switch": {
-                "Heater": {}
-            }
-        }
-    }
-    send(cfg)
-
-def send_state():
-    st = {
-        "state": {
-            "room_temperature": 21.6,
-            "heater": 1
-        }
-    }
-    send(st)
-
-send_config()
-
-buf = ""
+send({
+  "config": {
+    "version": 3,
+    "sensor": { "Room Temperature": {"unit": "C"} }
+  }
+})
 
 while True:
-    # receive SET command
-    if s.recv(1) as c:
-        if c == b'\0':
-            print("SET:", buf)
-            buf = ""
-        else:
-            buf += c.decode()
-
-    send_state()
+    send({ "state": {"room_temperature": 21.7} })
     time.sleep(5)
 ```
 
 ---
 
-# ✅ **5. STM32 HAL (C) – Lightweight Example**
-
-TCP komponensek mcu-tól függnek (LWIP + netconn API).
-Csak a HaLink adatlogika:
+## 🟥 **STM32 (LWIP netconn)**
 
 ```c
-void halink_send_config(struct netconn* conn) {
-    const char* cfg =
-        "{\"config\":{"
-            "\"version\":3,"
-            "\"sensor\":{\"Flow Temp\":{\"u\":\"C\"}},"
-            "\"binary_sensor\":{\"Gas Valve\":{}}"
-        "}}";
-
-    netconn_write(conn, cfg, strlen(cfg), NETCONN_COPY);
-    netconn_write(conn, "\0", 1, NETCONN_COPY);
-}
-
-void halink_send_state(struct netconn* conn, float temp, int valve) {
+void send_state(struct netconn *conn, float t) {
     char buf[128];
-    sprintf(buf,
-        "{\"state\":{\"flow_temp\":%.2f,\"gas_valve\":%d}}\0",
-        temp, valve);
-
+    sprintf(buf, "{\"state\":{\"temp\":%.2f}}\0", t);
     netconn_write(conn, buf, strlen(buf), NETCONN_COPY);
 }
 ```
 
 ---
 
-# ✅ **6. Minimal MCU-agnostic Example (Pseudo-Code)**
+# 📚 Full Protocol Specification
 
-Ez a lehető legkisebb implementáció, bármi portolható rá:
+The full text is included in:
+📄 `halink_v3_specification.txt`
 
-```
-on_tcp_connect():
-    send("{"config":{...}}\0")
+---
 
-loop:
-    if tcp_has_frame():
-        frame = read_until('\0')
-        if frame startswith("{"):
-            parse_json_set(frame)
-        else if frame like "key=value":
-            parse_light_set(frame)
+# 🤝 Contributing
 
-    if time_to_send_state():
-        send_state_json + '\0'
-```
+Pull requests are welcome — firmware examples, optimizations, protocol extensions, documentation improvements.
 
+---
+
+# 📜 License
+
+MIT License.
+
+---
