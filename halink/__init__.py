@@ -1,6 +1,6 @@
 # __init__.py – HaLink V3-kompatibilis, teljes újraírt verzió
 """
-HaLink V3 – fő integrációs modul
+HaLink V3 - fő integrációs modul
 --------------------------------
 Ez a verzió tiszta V3 architektúrát követ:
 - Minden eszköz: HaLinkDevice instance
@@ -89,7 +89,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     device = hass.data.get(DOMAIN, {}).pop(device_id, None)
     if device is not None:
-        # device maga leállítja a klienst és a worker-t
+        # 1) Platform-level dispatcher unsubs (set in utils.async_setup_platform_common)
+        try:
+            if hasattr(device, "_platform_unsubs"):
+                for p, unsub in list(device._platform_unsubs.items()):
+                    try:
+                        if unsub:
+                            unsub()
+                    except Exception:
+                        pass
+                device._platform_unsubs.clear()
+        except Exception:
+            pass
+
+        # 2) device maga leállítja a klienst és a worker-t
         await device.async_shutdown()
 
     # Platformok lekapcsolása
