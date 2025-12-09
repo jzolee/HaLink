@@ -19,11 +19,24 @@ async def async_setup_platform_common(hass, config_entry, async_add_entities, pl
         ent = entity_cls(hass, device, ent_cfg)
         async_add_entities([ent])
 
-    async_dispatcher_connect(
+    # Register dispatcher and keep unsubscribe handle on the device so we can
+    # cleanup on entry unload (prevent memory growth across reloads).
+    unsub = async_dispatcher_connect(
         hass,
         f"{DOMAIN}_create_{platform}",
         _create,
     )
+
+    # Store platform-level unsubs on the device object for cleanup.
+    try:
+        device = hass.data[DOMAIN][device_id]
+        if not hasattr(device, "_platform_unsubs"):
+            device._platform_unsubs = {}
+        device._platform_unsubs[platform] = unsub
+    except Exception:
+        # defensive: if device not present yet, ignore (platform won't be created)
+        # but this should not normally happen because config_entry exists.
+        pass
 
 # -----------------------------
 # 1. NORMALIZATION
