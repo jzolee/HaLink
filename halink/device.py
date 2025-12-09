@@ -1,6 +1,6 @@
 # device.py
 """
-HaLink V3 – Device Manager (ÚJ verzió)
+HaLink V3 - Device Manager
 
 Feladat:
   ✓ kapcsolatkezelés (connect / disconnect)
@@ -90,8 +90,14 @@ class HaLinkDevice:
 
         # SET queue engine
         self._delay_ms: int = 0
-        self._set_queue: asyncio.Queue = asyncio.Queue()
+        # Bounded queue to avoid unbounded memory growth if producer floods SETs.
+        # Choose a reasonable default maxsize (adjustable if you want).
+        self._set_queue: asyncio.Queue = asyncio.Queue(maxsize=500)
         self._set_task: Optional[asyncio.Task] = None
+
+        # Track which entity keys we've already created to avoid duplicate creation
+        # on repeated CONFIG messages.
+        self._entities_created: set[str] = set()
 
         self.parser = MessageParser()
         self.connected = False
@@ -156,6 +162,12 @@ class HaLinkDevice:
                 self._set_queue.get_nowait()
             except Exception:  # noqa: BLE001
                 break
+
+        # reset created entity tracking (cleanup)
+        try:
+            self._entities_created.clear()
+        except Exception:
+            pass
 
         # TCP kliens leállítása
         try:
@@ -229,18 +241,30 @@ class HaLinkDevice:
                 )
                 continue
 
+            # Avoid recreating same entity multiple times across CONFIG messages.
+            if key in self._entities_created:
+                # entity already created — skip creation.
+                continue
+
             platform = ent.get("platform")
             if not platform:
                 continue
 
             # A platform modulok ezt figyelik:
-            #   f"{DOMAIN}_create_<platform>"
+            #   f"{DOMAIN}_create_{platform}"
             async_dispatcher_send(
                 self.hass,
                 f"{DOMAIN}_create_{platform}",
                 self.device_id,
                 ent,
             )
+
+            # Mark as created so repeated CONFIG won't recreate entity instances.
+            try:
+                self._entities_created.add(key)
+            except Exception:
+                pass
+
 
     # ==================================================================
     # STATE feldolgozás
@@ -319,7 +343,22 @@ class HaLinkDevice:
         if self._delay_ms > 0:
             loop = asyncio.get_running_loop()
             ts = loop.time()
-            await self._set_queue.put((ts, msg))
+            try:
+                # Try to put without waiting if queue is full -> drop oldest item
+                self._set_queue.put_nowait((ts, msg))
+            except Exception:
+                # Queue full: drop one oldest and try again (drop-oldest policy).
+                try:
+                    _ = self._set_queue.get_nowait()
+                except Exception:
+                    # if unable to remove, fallback to blocking put (rare)
+                    await self._set_queue.put((ts, msg))
+                else:
+                    try:
+                        self._set_queue.put_nowait((ts, msg))
+                    except Exception:
+                        # finally, fallback to blocking put
+                        await self._set_queue.put((ts, msg))
         else:
             await self._send_raw(msg)
 
@@ -347,6 +386,7 @@ class HaLinkDevice:
             # worker nem kell
             if self._set_task:
                 self._set_task.cancel()
+                # do not leak task reference; the cancelled task will finish soon
                 self._set_task = None
                 log.debug(f"SET worker stopped for {self.device_id}")
             # queue ürítése (a régieket inkább eldobjuk)
@@ -426,4 +466,5 @@ class HaLinkDevice:
 
         # HA saját task-kal indítjuk
         self._config_timeout_task = self.hass.async_create_task(_wait_for_config())
+
 
