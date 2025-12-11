@@ -86,22 +86,22 @@ class ConfigParser:
         out["device"] = device_block or {}
 
         # -------------------------------
-        # Alive blokk
+        # Alive blokk -- nem kell alive block!!
         # -------------------------------
-        alive_block = raw.get("alive", {})
-        if isinstance(alive_block, dict):
-            out["alive"] = alive_block
-        else:
-            out["alive"] = {}
+        #alive_block = raw.get("alive", {})
+        #if isinstance(alive_block, dict):
+        #    out["alive"] = alive_block
+        #else:
+        #   out["alive"] = {}
 
         # -------------------------------
-        # Events blokk
+        # Events blokk -- nem kell events block!!
         # -------------------------------
-        events_block = raw.get("events", {})
-        if isinstance(events_block, dict):
-            out["events"] = events_block
-        else:
-            out["events"] = {}
+        #events_block = raw.get("events", {})
+        #if isinstance(events_block, dict):
+        #    out["events"] = events_block
+        #else:
+        #    out["events"] = {}
 
         # -------------------------------
         # SET módok (light / object)
@@ -199,7 +199,7 @@ class ConfigParser:
                 final["key"] = normalized_key
 
                 # attributes háromszintű merge
-		# nem szükséges a config-ban attributes szekció!!!!!
+                # nem szükséges a config-ban attributes szekció!!!!!
                 #attrs = merge_attributes(
                 #    b_global.get("attributes"),
                 #    b_platform.get("attributes"),
