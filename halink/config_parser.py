@@ -164,8 +164,8 @@ class ConfigParser:
         # -------------------------------
         all_entities: Dict[str, Dict[str, Any]] = {}
 
-        # platformok: sensor, number, switch, binary_sensor, select
-        for platform in ("sensor", "number", "switch", "binary_sensor", "select"):
+        # platformok: sensor, number, switch, binary_sensor, select, button
+        for platform in ("sensor", "number", "switch", "binary_sensor", "select", "button"):
             block = raw.get(platform, {})
             if not isinstance(block, dict):
                 continue
@@ -199,13 +199,14 @@ class ConfigParser:
                 final["key"] = normalized_key
 
                 # attributes háromszintű merge
-                attrs = merge_attributes(
-                    b_global.get("attributes"),
-                    b_platform.get("attributes"),
-                    entity_def.get("attributes"),
-                )
-                if attrs:
-                    final["attributes"] = attrs
+		# nem szükséges a config-ban attributes szekció!!!!!
+                #attrs = merge_attributes(
+                #    b_global.get("attributes"),
+                #    b_platform.get("attributes"),
+                #    entity_def.get("attributes"),
+                #)
+                #if attrs:
+                #    final["attributes"] = attrs
 
                 all_entities[normalized_key] = final
 
