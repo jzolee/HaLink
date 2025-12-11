@@ -212,12 +212,42 @@ class HaLinkBaseEntity(Entity):
             if key in ("key", "platform", "friendly_name"):
                 continue
 
+            # 1) Top-level runtime attribútumok (name/icon/unit/...)
             if key in RUNTIME_ATTR_MAP:
                 attr_name = RUNTIME_ATTR_MAP[key]
                 setattr(self, attr_name, value)
-            else:
-                # extra attribútumnak tekintjük
-                self._extra_attrs[key] = value
+                continue
+
+            # 2) Az "attributes" dict külön kezelése:
+            if key == "attributes" and isinstance(value, dict):
+                # Először merge az extra attribútumokba (megtartjuk a raw attrib-okat)
+                self._extra_attrs.update(value)
+
+                # 2.a Ha a belső kulcsok _attr_ prefix-szel vannak, alkalmazzuk őket közvetlenül
+                for akey, aval in list(value.items()):
+                    if isinstance(akey, str) and akey.startswith("_attr_"):
+                        # pl. "_attr_icon" -> setattr(self, "_attr_icon", aval)
+                        try:
+                            setattr(self, akey, aval)
+                            # ha sikeres volt, eltávolítjuk az extra attribútumok közül
+                            self._extra_attrs.pop(akey, None)
+                        except Exception:
+                            # defensive: ne dobjon, csak logoljuk
+                            _LOG.debug(f"Failed to apply runtime attr {akey}={aval} for {self.entity_id}")
+
+                    # 2.b Ha a belső kulcs a RUNTIME_ATTR_MAP egyik kulcsa (pl. "icon"), alkalmazzuk
+                    elif akey in RUNTIME_ATTR_MAP:
+                        try:
+                            setattr(self, RUNTIME_ATTR_MAP[akey], aval)
+                            # eltávolítjuk az extra attribútumok közül
+                            self._extra_attrs.pop(akey, None)
+                        except Exception:
+                            _LOG.debug(f"Failed to apply mapped runtime attr {akey}={aval} for {self.entity_id}")
+
+                continue
+
+            # 3) Minden egyéb marad extra attribútumként
+            self._extra_attrs[key] = value
 
     # ------------------------------------------------------------------
     def _apply_state(self, state: Dict[str, Any]) -> None:
@@ -231,3 +261,4 @@ class HaLinkBaseEntity(Entity):
     async def async_send_set(self, value: Any) -> None:
         """SET parancs küldése a device felé (entity_key alapján)."""
         await self._device.send_set(self._entity_key, value)
+
