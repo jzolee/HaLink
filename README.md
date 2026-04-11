@@ -1,24 +1,108 @@
-# HaLink V3 — Home Assistant Integration & Protocol (Developer Handbook)
+# HaLink V3 — Home Assistant Integration & Protocol
 
-*A lightweight, deterministic, TCP‑based IoT protocol and Home Assistant integration for microcontroller devices.*
+**Lightweight • Deterministic • Local TCP IoT Protocol** for microcontrollers and servers.
+
+*A fast, broker-free, fully offline protocol with native Home Assistant integration.*
+
+![Version](https://img.shields.io/badge/version-3.0.1-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## What is HaLink?
+
+**HaLink V3** is a lightweight, TCP-based IoT protocol designed for microcontrollers (ESP32, ESP8266, STM32, RP2040, AVR, etc.) and server-side applications.  
+
+It enables **direct, fast and deterministic** communication between your device and Home Assistant without MQTT, cloud services, or any broker.
+
+### Key Advantages
+- Device acts as TCP server, Home Assistant as client
+- Dynamic entities defined entirely by your firmware via CONFIG
+- Supports both ultra-compact `key=value` and full JSON commands
+- Optional short-key compression for bandwidth-constrained devices
+- Automatic entity creation and real-time state updates
+- Built-in Alive connectivity sensor
+- Excellent for both tiny MCUs and server-side scripts
 
 ---
 
-## 1. What is HaLink?
+## Installation
 
-**HaLink** is a local, TCP‑based IoT protocol built for microcontrollers (ESP32/ESP8266, STM32, RP2040, AVR, etc.) and a Home Assistant (HA) integration that implements the protocol end‑to‑end.
+### Recommended: Install via HACS
 
-HaLink focuses on **speed, determinism, and simplicity**:
+1. Go to **HACS → Integrations**
+2. Click the three dots (⋮) in the top right → **Custom repositories**
+3. Add repository: https://github.com/jzolee/HaLink
+4. Select **Integration** as category
+5. Click **Add**
+6. Search for **HaLink Device** and install it
+7. Restart Home Assistant
+8. Go to **Settings → Devices & Services → Add Integration** → search for **HaLink Device**
 
-- **No broker, no cloud, no MQTT** — pure LAN TCP.
-- **Device is the TCP server**; Home Assistant is the TCP client.
-- **Dynamic entities** defined by your firmware via CONFIG.
-- **Fast parsing** with optional short‑keys.
-- **Deterministic commands** with optional queued SET.
+### Manual Installation
 
-If your device can open a TCP server and send/receive strings, it can speak HaLink.
+1. Copy the `custom_components/halink/` folder into your Home Assistant `config/custom_components/` directory
+2. Restart Home Assistant
+3. Add the integration via **Settings → Devices & Services**
+
+Entities will appear automatically after your device sends a valid CONFIG message.
 
 ---
+
+## Quick Start for Developers
+
+1. Open a TCP server on your device (default port: 5000)
+2. When Home Assistant connects, send a **CONFIG** message (null-terminated)
+3. Send **STATE** messages periodically or on change
+4. Accept **SET** commands from HA
+5. Optionally send **EVENT** messages (button presses, RFID, etc.)
+
+All frames must end with a null byte (`\0`).
+
+---
+
+## Protocol Overview (V3)
+
+All messages are **JSON** and **null-terminated** (`\0`).
+
+### 1. CONFIG (Device → HA)
+Defines device metadata, entities, and behavior.
+- Must contain `"version": 3`
+- Sent after connection and can be resent for reconfiguration
+- No state values here
+
+### 2. STATE (Device → HA)
+Carries current values of entities.
+- Supports primitive values and rich object format (with attributes and timestamp)
+- Partial updates are allowed
+
+### 3. SET (HA → Device)
+Commands sent from Home Assistant.
+- **Light mode** (`set_mode: "light"`): simple `key=value\0`
+- **Object mode** (`set_mode: "object"`): full JSON with optional timestamp
+- Optional queuing with `delay_ms` and 10-minute TTL
+
+### 4. EVENT (Device → HA)
+Arbitrary events not tied to entities.
+- Fired in HA as `halink_event.<device_id>.<event_key>`
+
+**Short-key mode** is fully supported and automatically expanded by the integration.
+
+---
+
+## Features
+
+- Fully asynchronous TCP client with automatic reconnect and backoff
+- CONFIG-driven dynamic entity creation
+- Per-entity state updates via dispatcher
+- EVENT propagation to Home Assistant event bus
+- SET command queue with delay and TTL
+- Automatic `binary_sensor.<device>_alive` (connectivity sensor)
+- Supported platforms: `sensor`, `number`, `switch`, `binary_sensor`, `select`, `button`
+- Works with both microcontrollers and server-side Python/Node.js/etc. scripts
+
+---
+
 
 ## 2. Design Goals & Philosophy
 
