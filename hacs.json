@@ -1,0 +1,8 @@
+{
+  "name": "HaLink Device",
+  "content_in_root": false,
+  "homeassistant": "2024.6.0",
+  "persistent_directory": null,
+  "render_readme": true,
+  "filename": "halink"
+}
