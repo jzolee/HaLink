@@ -63,48 +63,44 @@ All frames must end with a null byte (`\0`).
 
 ## Protocol Overview (V3)
 
-All messages are **JSON** and **null-terminated** (`\0`).
+All messages are JSON and **null-terminated** (`\0`).
 
-### 1. CONFIG (Device → HA)
-Defines device metadata, entities, and behavior.
-- Must contain `"version": 3`
-- Sent after connection and can be resent for reconfiguration
-- No state values here
+### CONFIG (Device → HA)
+- Must include `"version": 3`
+- Defines entities, device metadata, and SET behavior (`set_mode`, `ts_enable`, `delay_ms`)
+- Sent after connect and can be resent anytime
 
-### 2. STATE (Device → HA)
-Carries current values of entities.
-- Supports primitive values and rich object format (with attributes and timestamp)
-- Partial updates are allowed
+### STATE (Device → HA)
+- Carries entity values
+- Supports primitive values and rich objects (`value`, `attributes`, `ts`)
+- Partial updates allowed
 
-### 3. SET (HA → Device)
-Commands sent from Home Assistant.
-- **Light mode** (`set_mode: "light"`): simple `key=value\0`
-- **Object mode** (`set_mode: "object"`): full JSON with optional timestamp
-- Optional queuing with `delay_ms` and 10-minute TTL
+### SET (HA → Device)
+- **Light mode**: `key=value\0`
+- **Object mode**: `{"set": {"key": {"value": ..., "ts": ...}}}`
+- Optional queue with `delay_ms` and 10-minute TTL
 
-### 4. EVENT (Device → HA)
-Arbitrary events not tied to entities.
-- Fired in HA as `halink_event.<device_id>.<event_key>`
+### EVENT (Device → HA)
+- Independent events (button press, RFID, etc.)
+- Appears in HA as `halink_event.<device_id>.<event_key>`
 
-**Short-key mode** is fully supported and automatically expanded by the integration.
+**Short-key mode** is optional and automatically expanded by the integration.
 
 ---
 
 ## Features
 
-- Fully asynchronous TCP client with automatic reconnect and backoff
+- Fully async TCP client with reconnect, backoff and OS-level keepalive
 - CONFIG-driven dynamic entity creation
 - Per-entity state updates via dispatcher
 - EVENT propagation to Home Assistant event bus
 - SET command queue with delay and TTL
-- Automatic `binary_sensor.<device>_alive` (connectivity sensor)
-- Supported platforms: `sensor`, `number`, `switch`, `binary_sensor`, `select`, `button`
-- Works with both microcontrollers and server-side Python/Node.js/etc. scripts
+- Automatic Alive connectivity binary sensor
+- Supported platforms: sensor, number, switch, binary_sensor, select, button
 
 ---
 
-
-## 2. Design Goals & Philosophy
+## Design Goals & Philosophy
 
 HaLink V3 was designed with MCU firmware in mind:
 
@@ -133,7 +129,7 @@ HaLink V3 was designed with MCU firmware in mind:
 
 ---
 
-## 3. Architecture Overview
+## Architecture Overview
 
 ### Roles
 - **Device / Firmware:** TCP **server** (listens, accepts HA connection).
@@ -176,27 +172,11 @@ flowchart TD
 
 ---
 
-## 4. Features
-
-- **Fully async TCP client** in HA with reconnect + backoff + keepalive.
-- **CONFIG‑driven entity auto‑creation**.
-- **Per‑entity dispatcher updates** for STATE values.
-- **EVENT propagation** to HA event bus.
-- **SET command engine**:
-  - *light mode:* `key=value\0`
-  - *object mode:* JSON `{ "set": { key: { "value": ... }}}`
-- **Optional SET queue** with delay and 10‑minute TTL.
-- **Short‑key support** (ROOT / CONFIG / PLATFORM / ENTITY mappings).
-- **Auto‑created Alive connectivity sensor**:
-  - `binary_sensor.<device>_alive`
-
----
-
-## 6. Protocol Summary (V3)
+## Protocol Summary (V3)
 
 All frames are **null‑terminated**: each JSON or text frame ends with `\0`.
 
-### 6.1 CONFIG (Device → HA)
+### CONFIG (Device → HA)
 
 Defines:
 - protocol version (must be 3)
@@ -213,7 +193,7 @@ CONFIG is sent:
 
 ---
 
-### 6.2 STATE (Device → HA)
+### STATE (Device → HA)
 
 Carries runtime values.
 Partial updates are allowed.
@@ -224,7 +204,7 @@ Two formats:
 
 ---
 
-### 6.3 SET (HA → Device)
+### SET (HA → Device)
 
 Two modes selected by CONFIG:
 
@@ -236,7 +216,7 @@ Queued commands expire after 10 minutes.
 
 ---
 
-### 6.4 EVENT (Device → HA)
+### EVENT (Device → HA)
 
 Arbitrary events independent from CONFIG.
 Examples: button presses, RFID reads, one‑shot interrupts.
@@ -247,7 +227,7 @@ Events appear in HA as:
 
 ---
 
-## 7. Firmware Example (ESP32 AsyncTCP Server, no JSON library)
+## Firmware Example (ESP32 AsyncTCP Server, no JSON library)
 
 This example runs a TCP **server** on the device.
 Home Assistant connects to it.
@@ -492,9 +472,9 @@ void loop() {
 
 ---
 
-## 8. CONFIG Examples
+## CONFIG Examples
 
-### 8.1 Minimal CONFIG (single sensor)
+### Minimal CONFIG (single sensor)
 
 ```json
 {
@@ -509,7 +489,7 @@ void loop() {
 
 ---
 
-### 8.2 Ultra‑compact short‑key CONFIG
+### Ultra‑compact short‑key CONFIG
 
 ```json
 {
@@ -527,7 +507,7 @@ void loop() {
 
 ---
 
-### 8.3 Base inheritance (global + platform)
+### Base inheritance (global + platform)
 
 ```json
 {
@@ -547,7 +527,7 @@ void loop() {
 
 ---
 
-### 8.4 Number with limits and step
+### Number with limits and step
 
 ```json
 {
@@ -567,7 +547,7 @@ void loop() {
 
 ---
 
-### 8.5 Select with options + default
+### Select with options + default
 
 ```json
 {
@@ -586,7 +566,7 @@ void loop() {
 
 ---
 
-### 8.6 Button with press_value
+### Button with press_value
 
 ```json
 {
@@ -605,7 +585,7 @@ void loop() {
 
 ---
 
-### 8.7 Device metadata for HA device registry
+### Device metadata for HA device registry
 
 ```json
 {
@@ -626,7 +606,7 @@ void loop() {
 
 ---
 
-### 8.8 Object SET mode + timestamps + queued SET
+### Object SET mode + timestamps + queued SET
 
 ```json
 {
@@ -641,7 +621,7 @@ void loop() {
   }
 }
 ```
-### 8.9 Full-featured CONFIG (Object SET mode)
+### Full-featured CONFIG (Object SET mode)
 
 ```json
 {
@@ -668,9 +648,9 @@ void loop() {
 
 ---
 
-## 9. STATE Examples
+## STATE Examples
 
-### 9.1 Minimal STATE (single value)
+### Minimal STATE (single value)
 
 ```json
 {
@@ -682,7 +662,7 @@ void loop() {
 
 ---
 
-### 9.2 Multiple primitive values
+### Multiple primitive values
 
 ```json
 {
@@ -696,7 +676,7 @@ void loop() {
 
 ---
 
-### 9.3 Object form with attributes
+### Object form with attributes
 
 ```json
 {
@@ -711,7 +691,7 @@ void loop() {
 
 ---
 
-### 9.4 Attribute‑only update (no value)
+### Attribute‑only update (no value)
 
 ```json
 {
@@ -725,7 +705,7 @@ void loop() {
 
 ---
 
-### 9.5 Partial STATE (only changed key)
+### Partial STATE (only changed key)
 
 ```json
 {
@@ -737,25 +717,7 @@ void loop() {
 
 ---
 
-### 9.6 Alive diagnostics block
-
-```json
-{
-  "state": {
-    "alive": {
-      "value": "online",
-      "attributes": {
-        "uptime": 5230,
-        "rssi": -47
-      }
-    }
-  }
-}
-```
-
----
-
-### 9.7 Select current option
+### Select current option
 
 ```json
 {
@@ -767,7 +729,7 @@ void loop() {
 
 ---
 
-### 9.8 Select dynamic options update via STATE
+### Select dynamic options update via STATE
 
 ```json
 {
@@ -782,7 +744,7 @@ void loop() {
 
 ---
 
-### 9.9 Timestamped STATE value
+### Timestamped STATE value
 
 ```json
 {
@@ -797,32 +759,41 @@ void loop() {
 
 ---
 
-## 10. Troubleshooting / FAQ
+## Troubleshooting
 
-**Q: HA connects but entities don’t appear.**  
-A: Your device must send a valid CONFIG with `"version": 3`. Ensure the frame ends with `\0`.
+**Entities don't appear?**  
+→ Ensure your device sends a valid CONFIG with `"version": 3` and ends with `\0`.
 
-**Q: Why `\0` termination?**  
-A: TCP is a byte stream. `\0` provides deterministic frame boundaries without needing length prefixes.
+**Frequent disconnects?**  
+→ Check network stability, firewall, and consider implementing keepalive pings.
 
-**Q: Can I avoid JSON on firmware?**  
-A: You can avoid JSON libraries, but CONFIG/STATE/EVENT must still be JSON strings.
+**Can I run this on a server/PC?**  
+→ Yes — any TCP server that sends proper JSON works perfectly.
 
-**Q: Is MQTT supported?**  
-A: No — HaLink is intentionally broker‑free and local‑only.
-
----
-
-## 11. Contributing
-
-Contributions are welcome:
-- firmware examples
-- protocol extensions
-- documentation improvements
-- testing with new MCU families
+**Duplicate device?**  
+→ Protected by unique ID based on host:port.
 
 ---
 
-## 12. License
+## Known Limitations
+
+- One integration per host:port pair
+- No reconfigure flow yet (change host/port → remove and re-add)
+- SET commands older than 10 minutes are dropped
+- Short keys are optional but recommended for small MCUs
+
+---
+
+## Contributing
+
+Contributions welcome:
+- More firmware examples (STM32, RP2040, Python server, etc.)
+- Protocol extensions
+- Documentation improvements
+- Bug reports and testing
+
+---
+
+## License
 
 MIT License.
