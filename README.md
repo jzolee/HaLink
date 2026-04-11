@@ -192,22 +192,6 @@ flowchart TD
 
 ---
 
-## 5. Installation (Home Assistant)
-
-### Manual install
-1. Copy `custom_components/halink/` into your HA config folder.
-2. Restart Home Assistant.
-3. **Settings → Devices & Services → Add Integration**
-4. Search for **HaLink Device**.
-5. Enter:
-   - Host (device IP / hostname)
-   - Port
-   - Friendly name
-
-Entities appear after your device sends CONFIG.
-
----
-
 ## 6. Protocol Summary (V3)
 
 All frames are **null‑terminated**: each JSON or text frame ends with `\0`.
@@ -653,6 +637,30 @@ void loop() {
     "delay_ms": 200,
     "number": {
       "Override Temp": { "min": 16, "max": 26, "step": 0.1 }
+    }
+  }
+}
+```
+### 8.9 Full-featured CONFIG (Object SET mode)
+
+```json
+{
+  "config": {
+    "version": 3,
+    "device": {
+      "name": "Boiler Controller",
+      "manufacturer": "DIY",
+      "model": "HaLink-v3"
+    },
+    "set_mode": "object",
+    "ts_enable": true,
+    "delay_ms": 150,
+    "select": {
+      "Operating Mode": {
+        "options": ["auto", "manual", "boost", "off"],
+        "default": "auto",
+        "entity_category": "config"
+      }
     }
   }
 }
